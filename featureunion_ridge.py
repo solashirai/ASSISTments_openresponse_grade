@@ -69,17 +69,21 @@ def get_cosine_sims(essay_list, label, n):
         if len(fullscore_essays) == 0:
             cosine_similarities_temp.append(0)
         else:
-            vectorizer_temp = TfidfVectorizer(tokenizer=TreebankWordTokenizer().tokenize, analyzer='char',
-                                              ngram_range=(2, n))
+            try:
+               vectorizer_temp = TfidfVectorizer(tokenizer=TreebankWordTokenizer().tokenize, analyzer='char',
+                                                  ngram_range=(2, n))
 
-            vectorizer_temp.fit(fullscore_essays)
+                vectorizer_temp.fit(fullscore_essays)
 
-            vec_essays_temp = vectorizer_temp.transform(essay_list)
-            top_vecs_temp = np.zeros(vec_essays_temp[0].shape)
-            for fullscore_i in fullscore_indices:
-                top_vecs_temp += vec_essays_temp[fullscore_i]
-            top_vecs_temp = top_vecs_temp / len(fullscore_indices)
-            cosine_similarities_temp.append((vec_essays_temp[x] * top_vecs_temp.T).A[0][0])
+                vec_essays_temp = vectorizer_temp.transform(essay_list)
+                top_vecs_temp = np.zeros(vec_essays_temp[0].shape)
+                for fullscore_i in fullscore_indices:
+                    top_vecs_temp += vec_essays_temp[fullscore_i]
+                top_vecs_temp = top_vecs_temp / len(fullscore_indices)
+                cosine_similarities_temp.append((vec_essays_temp[x] * top_vecs_temp.T).A[0][0])
+            except ValueError:
+                # error case when fullscore responses are all stopwords - occurs once in our dataset
+                cosine_similarities_temp.append(0)
     return cosine_similarities_temp
 
 # mostly just set up as a separate function to allow mutithreading
