@@ -99,7 +99,7 @@ if __name__ == '__main__':
                     dec_fun = np.zeros(len(true_labels))
             if df_ind == scores[score_index]:
                 binarized_labels = np.where(np.array(true_labels) == scores[score_index], 1, 0)
-                rmse = mean_squared_error(binarized_labels, dec_fun) #** 0.5
+                rmse = mean_squared_error(binarized_labels, dec_funs[score_index]) ** 0.5
                 RMSEs[scores[score_index]] = rmse
                 score_index += 1
             df_ind += 1
