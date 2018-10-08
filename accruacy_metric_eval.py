@@ -26,8 +26,12 @@ timestamp = str(int(time.time()))
 training_path = 'Final_Filtered_Data_John_update.csv'  # name of dataset
 pidlist = data_utils.load_pidlist(training_path)
 
-data_dir = 'runs/1533297156_newestfilter_trial2'
+data_dir = 'runs/jesus2_timestamp1539006507'
 # go through each problem of interest
+
+
+def most_common (lst):
+    return max(((item, lst.count(item)) for item in set(lst)), key=lambda a: a[1])[0]
 
 class ItemSelector(BaseEstimator, TransformerMixin):
     def __init__(self, key):
@@ -71,6 +75,8 @@ if __name__ == '__main__':
         scores = training_df['PredictionCorrect'].tolist()
         true_labels = training_df['Label'].tolist()
         predicted_labels = training_df['Predicted'].tolist()
+        maj_lab = most_common(true_labels)
+        #predicted_labels = np.repeat(maj_lab, len(predicted_labels))
         dec_funs = [training_df['DF1'].tolist(),
                training_df['DF2'].tolist(),
                training_df['DF3'].tolist(),
@@ -125,5 +131,5 @@ if __name__ == '__main__':
                         'AUC avg': roc_auc_avg,
                         'Weighted F1 score': f1_score(true_labels, predicted_labels, average='weighted')
                        }, ignore_index=True)
-    df.to_csv(data_dir+'/'+'error_metric_evaluations.csv')
+    df.to_csv(data_dir+'/'+'majorityclass_error_metric_evaluations.csv')
 

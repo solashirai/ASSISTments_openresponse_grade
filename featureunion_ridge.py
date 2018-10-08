@@ -9,6 +9,7 @@ import data_utils
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.feature_extraction.text import TfidfTransformer, TfidfVectorizer, CountVectorizer
 from sklearn.linear_model import LogisticRegression, RidgeClassifier, SGDClassifier, Lasso, RidgeClassifierCV
+from sklearn.tree import DecisionTreeClassifier
 from sklearn.model_selection import GridSearchCV, LeaveOneOut
 from sklearn.preprocessing import PolynomialFeatures, FunctionTransformer
 from sklearn.pipeline import make_pipeline, FeatureUnion
@@ -18,7 +19,9 @@ import pandas as pd
 from multiprocessing import Pool, Lock
 from contextlib import closing
 import itertools
+from sklearn.preprocessing import label_binarize
 from sklearn.utils import shuffle
+from sklearn.tree import export_graphviz
 from collections import defaultdict
 from sklearn.metrics import precision_recall_fscore_support as score
 from scipy.stats import entropy
@@ -36,7 +39,7 @@ timestamp = str(int(time.time()))
 training_path = 'Final_Filtered_Data_John_update.csv'  # 'Final_Filtered_Data_John.csv'#
 
 # name of folder in which to store results
-top_folder_name = 'fulltest_timestamp{}_trial{}'.format(timestamp, trial)
+top_folder_name = 'jesus2_timestamp{}'.format(timestamp)
 
 class ItemSelector(BaseEstimator, TransformerMixin):
     def __init__(self, key):
@@ -69,17 +72,20 @@ def get_cosine_sims(essay_list, label, n):
         if len(fullscore_essays) == 0:
             cosine_similarities_temp.append(0)
         else:
-            vectorizer_temp = TfidfVectorizer(tokenizer=TreebankWordTokenizer().tokenize, analyzer='char',
-                                              ngram_range=(2, n))
+            try:
+                vectorizer_temp = TfidfVectorizer(tokenizer=TreebankWordTokenizer().tokenize, analyzer='char',
+                                                  ngram_range=(2, n))
 
-            vectorizer_temp.fit(fullscore_essays)
+                vectorizer_temp.fit(fullscore_essays)
 
-            vec_essays_temp = vectorizer_temp.transform(essay_list)
-            top_vecs_temp = np.zeros(vec_essays_temp[0].shape)
-            for fullscore_i in fullscore_indices:
-                top_vecs_temp += vec_essays_temp[fullscore_i]
-            top_vecs_temp = top_vecs_temp / len(fullscore_indices)
-            cosine_similarities_temp.append((vec_essays_temp[x] * top_vecs_temp.T).A[0][0])
+                vec_essays_temp = vectorizer_temp.transform(essay_list)
+                top_vecs_temp = np.zeros(vec_essays_temp[0].shape)
+                for fullscore_i in fullscore_indices:
+                    top_vecs_temp += vec_essays_temp[fullscore_i]
+                top_vecs_temp = top_vecs_temp / len(fullscore_indices)
+                cosine_similarities_temp.append((vec_essays_temp[x] * top_vecs_temp.T).A[0][0])
+            except ValueError:
+                cosine_similarities_temp.append(0)
     return cosine_similarities_temp
 
 # mostly just set up as a separate function to allow mutithreading
@@ -112,6 +118,7 @@ def run_model_on_problem(pid, folder_name, training_path):
     # skip over problems that only have 1 distinct score
     if len(set(label)) == 1:
         return
+
 
     n_total = len(essay_list)
 
@@ -160,14 +167,15 @@ def run_model_on_problem(pid, folder_name, training_path):
     wordcount = np.array(wordcount)
 
     # get cosine similarity features
-    all_cosine_sims = [
-        get_cosine_sims(essay_list, label, 3),
-        get_cosine_sims(essay_list, label, 7),
-        get_cosine_sims(essay_list, label, 11)
-    ]
-    cosine_similarities3 = all_cosine_sims[0]
-    cosine_similarities7 = all_cosine_sims[1]
-    cosine_similarities11 = all_cosine_sims[2]
+    # all_cosine_sims = [
+    #     get_cosine_sims(essay_list, label, 3),
+    #     get_cosine_sims(essay_list, label, 7),
+    #     get_cosine_sims(essay_list, label, 11)
+    # ]
+    # cosine_similarities3 = all_cosine_sims[0]
+    # cosine_similarities7 = all_cosine_sims[1]
+    # cosine_similarities11 = all_cosine_sims[2]
+
 
     # create an array that is formatted so that it can be passed into the sklearn model pipeline
     elx = np.recarray(shape=(len(essay_list),),
@@ -178,9 +186,9 @@ def run_model_on_problem(pid, folder_name, training_path):
 
     elx['text'][:] = essay_list[:]
     elx['length'][:] = wordcount[:]
-    elx['similarity3'][:] = cosine_similarities3[:]
-    elx['similarity7'][:] = cosine_similarities7[:]
-    elx['similarity11'][:] = cosine_similarities11[:]
+    # elx['similarity3'][:] = cosine_similarities3[:]
+    # elx['similarity7'][:] = cosine_similarities7[:]
+    # elx['similarity11'][:] = cosine_similarities11[:]
 
     correct_list = []
     pred_list = []
@@ -197,11 +205,11 @@ def run_model_on_problem(pid, folder_name, training_path):
             ItemSelector(key='text'),
             CountVectorizer(tokenizer=TreebankWordTokenizer().tokenize)
         )),
-        ('text_features_2', make_pipeline(
-            ItemSelector(key='similarity3'),
-            PolynomialFeatures(degree=1)
-        ))
-    ], transformer_weights={"length_features": 1, "text_features": 1, "text_features_2": 10})
+       # ('text_features_2', make_pipeline(
+       #     ItemSelector(key='similarity3'),
+       #     PolynomialFeatures(degree=1)
+       # ))
+    ], transformer_weights={"length_features": 1, "text_features": 1})#, "text_features_2": 10
 
     txt_len_features7 = FeatureUnion([
         ('length_features', make_pipeline(
@@ -260,7 +268,7 @@ def run_model_on_problem(pid, folder_name, training_path):
 
         trainE, train_scores = shuffle(trainE, train_scores)
 
-        classifier_pipe3 = make_pipeline(txt_len_features3, RidgeClassifier())
+        classifier_pipe3 = make_pipeline(txt_len_features3, DecisionTreeClassifier(max_depth=3))#max_depth=2)) #RidgeClassifier())
         classifier_pipe7 = make_pipeline(txt_len_features7, RidgeClassifier())
         classifier_pipe11 = make_pipeline(txt_len_features11, RidgeClassifier())
         classifier_pipe = make_pipeline(txt_len_features, RidgeClassifier())
@@ -316,14 +324,16 @@ def run_model_on_problem(pid, folder_name, training_path):
 
             # get results
             result_temp = model.predict(elx[i].reshape((1,)))
-            result_probs_temp = model.decision_function(elx[i].reshape((1,)))
+            result_probs_temp = model.predict_proba(elx[i].reshape((1,)))
 
             #for looking at the weights and such of the trained model, for the classifier_pipe3
             #an extra step is probably needed before the named_steps[...] if gridsearch models are used
             # print(model.named_steps['featureunion'].transformer_list[1][1].named_steps['countvectorizer'].vocabulary_)
             # print(model.named_steps['featureunion'].transform(elx[i].reshape((1,))))
-            # print(model.named_steps['ridgeclassifier'].coef_)
+            # print(model.named_steps['decisiontreeclassifier'].feature_importances_)
+            # export_graphviz(model.named_steps['decisiontreeclassifier'], out_file='tree_maxfeats.dot')
             # print(model.named_steps['ridgeclassifier'].intercept_[0])
+            # quit()
 
             # compare decision functions
             if np.max(result_probs_temp[0]) > result_prob_top:
@@ -402,7 +412,7 @@ def run_model_on_problem(pid, folder_name, training_path):
         del (models)
 
     print("LOO CV Accuracy: {}".format(np.mean(correct_list)))
-    kap = cohen_kappa_score(pred_list, label)
+    kap = 0#cohen_kappa_score(pred_list, label)
     print("Cohen Kappa Score: {}".format(kap))
     with open(out_dir + '/params', 'a') as f:
         # f.write("Poly {} LOO CV Accuracy: {}\n".format(degree, np.mean(correct_list)))
@@ -470,34 +480,31 @@ def init_child(lock_):
 if __name__ == '__main__':
     assignment_pidlist = data_utils.load_pidlist(training_path)
 
-    # do multiple trials, need to check how much shuffling data changes results
-    for trial in range(1):
+    df = pd.DataFrame(
+        columns=['PID', 'Problem Count',  '0', '0.25', '0.5', '0.75', '1', 'LOO Accuracy',
+                 'Cohen Kappa', 'Number Confident (>0)', 'Accuracy of Confident', 'Number High Confident (>0.5)',
+                 'Accuracy High Confident', 'Precision', 'Recall', 'Fscore', 'Support'])
 
-        df = pd.DataFrame(
-            columns=['PID', 'Problem Count',  '0', '0.25', '0.5', '0.75', '1', 'LOO Accuracy',
-                     'Cohen Kappa', 'Number Confident (>0)', 'Accuracy of Confident', 'Number High Confident (>0.5)',
-                     'Accuracy High Confident', 'Precision', 'Recall', 'Fscore', 'Support'])
+    df_details = pd.DataFrame(columns=['PID', 'Label', 'Predicted', 'PredictionCorrect',
+                                       'DF1', 'DF2', 'DF3', 'DF4', 'DF5', 'Text'])
 
-        df_details = pd.DataFrame(columns=['PID', 'Label', 'Predicted', 'PredictionCorrect',
-                                           'DF1', 'DF2', 'DF3', 'DF4', 'DF5', 'Text'])
+    df_params = pd.DataFrame(columns=['PID', 'weights', 'ngrams', 'degree', 'choice'])
 
-        df_params = pd.DataFrame(columns=['PID', 'weights', 'ngrams', 'degree', 'choice'])
+    # if restarting from the middle of a previously abandoned run...
+    # df = pd.read_csv("runs/hugetest_modifieddfcomparison_engageny/test_results.csv")
+    # df_params = pd.read_csv("runs/hugetest_modifieddfcomparison_engageny/test_params.csv")
+    # df_details = pd.read_csv("runs/hugetest_modifieddfcomparison_engageny/test_details.csv")
 
-        # if restarting from the middle of a previously abandoned run...
-        # df = pd.read_csv("runs/hugetest_modifieddfcomparison_engageny/test_results.csv")
-        # df_params = pd.read_csv("runs/hugetest_modifieddfcomparison_engageny/test_params.csv")
-        # df_details = pd.read_csv("runs/hugetest_modifieddfcomparison_engageny/test_details.csv")
+    out_dir = os.path.abspath(os.path.join(os.path.curdir, "runs", top_folder_name))
+    if not os.path.exists(out_dir):
+        os.makedirs(out_dir)
+    df.to_csv(out_dir + '/' + 'test_results.csv', index=False)
+    df_details.to_csv(out_dir + '/' + 'test_details.csv', index=False)
+    df_params.to_csv(out_dir + '/' + 'test_params.csv', index=False)
 
-        out_dir = os.path.abspath(os.path.join(os.path.curdir, "runs", top_folder_name))
-        if not os.path.exists(out_dir):
-            os.makedirs(out_dir)
-        df.to_csv(out_dir + '/' + 'test_results.csv', index=False)
-        df_details.to_csv(out_dir + '/' + 'test_details.csv', index=False)
-        df_params.to_csv(out_dir + '/' + 'test_params.csv', index=False)
+    lock = Lock()
 
-        lock = Lock()
-
-        # go through each problem of interest, use multithreading
-        with closing(Pool(1, initializer=init_child, initargs=(lock,))) as pool:
-            pool.starmap(run_model_on_problem, zip(assignment_pidlist, itertools.repeat(top_folder_name),
-                                                   itertools.repeat(training_path)))
+    # go through each problem of interest, use multithreading
+    with closing(Pool(3, initializer=init_child, initargs=(lock,))) as pool:
+        pool.starmap(run_model_on_problem, zip(assignment_pidlist, itertools.repeat(top_folder_name),
+                                               itertools.repeat(training_path)))
